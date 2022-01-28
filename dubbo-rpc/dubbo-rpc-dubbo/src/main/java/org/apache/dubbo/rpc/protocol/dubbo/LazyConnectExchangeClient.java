@@ -16,7 +16,6 @@
  */
 package org.apache.dubbo.rpc.protocol.dubbo;
 
-import org.apache.dubbo.common.Constants;
 import org.apache.dubbo.common.Parameters;
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.logger.Logger;
@@ -27,12 +26,19 @@ import org.apache.dubbo.remoting.RemotingException;
 import org.apache.dubbo.remoting.exchange.ExchangeClient;
 import org.apache.dubbo.remoting.exchange.ExchangeHandler;
 import org.apache.dubbo.remoting.exchange.Exchangers;
-import org.apache.dubbo.remoting.exchange.ResponseFuture;
 
 import java.net.InetSocketAddress;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+
+import static org.apache.dubbo.remoting.Constants.SEND_RECONNECT_KEY;
+import static org.apache.dubbo.rpc.protocol.dubbo.Constants.DEFAULT_LAZY_CONNECT_INITIAL_STATE;
+import static org.apache.dubbo.rpc.protocol.dubbo.Constants.DEFAULT_LAZY_REQUEST_WITH_WARNING;
+import static org.apache.dubbo.rpc.protocol.dubbo.Constants.LAZY_CONNECT_INITIAL_STATE_KEY;
+import static org.apache.dubbo.rpc.protocol.dubbo.Constants.LAZY_REQUEST_WITH_WARNING_KEY;
 
 /**
  * dubbo protocol support class.
@@ -40,37 +46,39 @@ import java.util.concurrent.locks.ReentrantLock;
 @SuppressWarnings("deprecation")
 final class LazyConnectExchangeClient implements ExchangeClient {
 
-    // when this warning rises from invocation, program probably have bug.
-    static final String REQUEST_WITH_WARNING_KEY = "lazyclient_request_with_warning";
-    private final static Logger logger = LoggerFactory.getLogger(LazyConnectExchangeClient.class);
+    private static final Logger logger = LoggerFactory.getLogger(LazyConnectExchangeClient.class);
     protected final boolean requestWithWarning;
     private final URL url;
     private final ExchangeHandler requestHandler;
     private final Lock connectLock = new ReentrantLock();
-    // lazy connect, initial state for connection
+    private final int warningPeriod = 5000;
+    /**
+     * lazy connect, initial state for connection
+     */
     private final boolean initialState;
     private volatile ExchangeClient client;
     private AtomicLong warningcount = new AtomicLong(0);
 
     public LazyConnectExchangeClient(URL url, ExchangeHandler requestHandler) {
         // lazy connect, need set send.reconnect = true, to avoid channel bad status.
-        this.url = url.addParameter(Constants.SEND_RECONNECT_KEY, Boolean.TRUE.toString());
+        this.url = url.addParameter(SEND_RECONNECT_KEY, Boolean.TRUE.toString());
         this.requestHandler = requestHandler;
-        this.initialState = url.getParameter(Constants.LAZY_CONNECT_INITIAL_STATE_KEY, Constants.DEFAULT_LAZY_CONNECT_INITIAL_STATE);
-        this.requestWithWarning = url.getParameter(REQUEST_WITH_WARNING_KEY, false);
+        this.initialState = url.getParameter(LAZY_CONNECT_INITIAL_STATE_KEY, DEFAULT_LAZY_CONNECT_INITIAL_STATE);
+        this.requestWithWarning = url.getParameter(LAZY_REQUEST_WITH_WARNING_KEY, DEFAULT_LAZY_REQUEST_WITH_WARNING);
     }
 
-
     private void initClient() throws RemotingException {
-        if (client != null)
+        if (client != null) {
             return;
+        }
         if (logger.isInfoEnabled()) {
             logger.info("Lazy connect to " + url);
         }
         connectLock.lock();
         try {
-            if (client != null)
+            if (client != null) {
                 return;
+            }
             this.client = Exchangers.connect(url, requestHandler);
         } finally {
             connectLock.unlock();
@@ -78,8 +86,8 @@ final class LazyConnectExchangeClient implements ExchangeClient {
     }
 
     @Override
-    public ResponseFuture request(Object request) throws RemotingException {
-        warning(request);
+    public CompletableFuture<Object> request(Object request) throws RemotingException {
+        warning();
         initClient();
         return client.request(request);
     }
@@ -99,21 +107,33 @@ final class LazyConnectExchangeClient implements ExchangeClient {
     }
 
     @Override
-    public ResponseFuture request(Object request, int timeout) throws RemotingException {
-        warning(request);
+    public CompletableFuture<Object> request(Object request, int timeout) throws RemotingException {
+        warning();
         initClient();
         return client.request(request, timeout);
     }
 
+    @Override
+    public CompletableFuture<Object> request(Object request, ExecutorService executor) throws RemotingException {
+        warning();
+        initClient();
+        return client.request(request, executor);
+    }
+
+    @Override
+    public CompletableFuture<Object> request(Object request, int timeout, ExecutorService executor) throws RemotingException {
+        warning();
+        initClient();
+        return client.request(request, timeout, executor);
+    }
+
     /**
      * If {@link #REQUEST_WITH_WARNING_KEY} is configured, then warn once every 5000 invocations.
-     *
-     * @param request
      */
-    private void warning(Object request) {
+    private void warning() {
         if (requestWithWarning) {
-            if (warningcount.get() % 5000 == 0) {
-                logger.warn(new IllegalStateException("safe guard client , should not be called ,must have a bug."));
+            if (warningcount.get() % warningPeriod == 0) {
+                logger.warn(url.getAddress() + " " + url.getServiceKey() + " safe guard client , should not be called ,must have a bug.");
             }
             warningcount.incrementAndGet();
         }
@@ -162,22 +182,27 @@ final class LazyConnectExchangeClient implements ExchangeClient {
 
     @Override
     public boolean isClosed() {
-        if (client != null)
+        if (client != null) {
             return client.isClosed();
-        else
-            return true;
+        } else {
+            return false;
+        }
     }
 
     @Override
     public void close() {
-        if (client != null)
+        if (client != null) {
             client.close();
+            client = null;
+        }
     }
 
     @Override
     public void close(int timeout) {
-        if (client != null)
+        if (client != null) {
             client.close(timeout);
+            client = null;
+        }
     }
 
     @Override

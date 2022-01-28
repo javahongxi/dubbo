@@ -16,6 +16,9 @@
  */
 package org.apache.dubbo.remoting.transport.netty4.logging;
 
+import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.logger.LoggerFactory;
+import org.apache.dubbo.common.utils.ArrayUtils;
 
 import java.text.MessageFormat;
 import java.util.HashMap;
@@ -87,6 +90,7 @@ import java.util.Map;
  * {@link #arrayFormat(String, Object[])} methods for more details.
  */
 final class MessageFormatter {
+    private static final Logger logger = LoggerFactory.getLogger(MessageFormatter.class);
     static final char DELIM_START = '{';
     static final char DELIM_STOP = '}';
     static final String DELIM_STR = "{}";
@@ -138,7 +142,7 @@ final class MessageFormatter {
     }
 
     static Throwable getThrowableCandidate(Object[] argArray) {
-        if (argArray == null || argArray.length == 0) {
+        if (ArrayUtils.isEmpty(argArray)) {
             return null;
         }
 
@@ -176,8 +180,8 @@ final class MessageFormatter {
         int j;
         StringBuffer sbuf = new StringBuffer(messagePattern.length() + 50);
 
-        int L;
-        for (L = 0; L < argArray.length; L++) {
+        int l;
+        for (l = 0; l < argArray.length; l++) {
 
             j = messagePattern.indexOf(DELIM_STR, i);
 
@@ -188,54 +192,54 @@ final class MessageFormatter {
                             throwableCandidate);
                 } else { // add the tail string which contains no variables and return
                     // the result.
-                    sbuf.append(messagePattern.substring(i, messagePattern.length()));
+                    sbuf.append(messagePattern.substring(i));
                     return new FormattingTuple(sbuf.toString(), argArray,
                             throwableCandidate);
                 }
             } else {
-                if (isEscapedDelimeter(messagePattern, j)) {
+                if (isEscapedDelimiter(messagePattern, j)) {
                     if (!isDoubleEscaped(messagePattern, j)) {
-                        L--; // DELIM_START was escaped, thus should not be incremented
-                        sbuf.append(messagePattern.substring(i, j - 1));
+                        l--; // DELIM_START was escaped, thus should not be incremented
+                        sbuf.append(messagePattern, i, j - 1);
                         sbuf.append(DELIM_START);
                         i = j + 1;
                     } else {
                         // The escape character preceding the delimiter start is
                         // itself escaped: "abc x:\\{}"
                         // we have to consume one backward slash
-                        sbuf.append(messagePattern.substring(i, j - 1));
-                        deeplyAppendParameter(sbuf, argArray[L], new HashMap<Object[], Void>());
+                        sbuf.append(messagePattern, i, j - 1);
+                        deeplyAppendParameter(sbuf, argArray[l], new HashMap<Object[], Void>());
                         i = j + 2;
                     }
                 } else {
                     // normal case
-                    sbuf.append(messagePattern.substring(i, j));
-                    deeplyAppendParameter(sbuf, argArray[L], new HashMap<Object[], Void>());
+                    sbuf.append(messagePattern, i, j);
+                    deeplyAppendParameter(sbuf, argArray[l], new HashMap<Object[], Void>());
                     i = j + 2;
                 }
             }
         }
         // append the characters following the last {} pair.
-        sbuf.append(messagePattern.substring(i, messagePattern.length()));
-        if (L < argArray.length - 1) {
+        sbuf.append(messagePattern.substring(i));
+        if (l < argArray.length - 1) {
             return new FormattingTuple(sbuf.toString(), argArray, throwableCandidate);
         } else {
             return new FormattingTuple(sbuf.toString(), argArray, null);
         }
     }
 
-    static boolean isEscapedDelimeter(String messagePattern,
-                                      int delimeterStartIndex) {
+    static boolean isEscapedDelimiter(String messagePattern,
+                                      int delimiterStartIndex) {
 
-        if (delimeterStartIndex == 0) {
+        if (delimiterStartIndex == 0) {
             return false;
         }
-        return messagePattern.charAt(delimeterStartIndex - 1) == ESCAPE_CHAR;
+        return messagePattern.charAt(delimiterStartIndex - 1) == ESCAPE_CHAR;
     }
 
     static boolean isDoubleEscaped(String messagePattern,
-                                   int delimeterStartIndex) {
-        return delimeterStartIndex >= 2 && messagePattern.charAt(delimeterStartIndex - 2) == ESCAPE_CHAR;
+                                   int delimiterStartIndex) {
+        return delimiterStartIndex >= 2 && messagePattern.charAt(delimiterStartIndex - 2) == ESCAPE_CHAR;
     }
 
     // special treatment of array values was suggested by 'lizongbo'
@@ -280,7 +284,7 @@ final class MessageFormatter {
             System.err
                     .println("SLF4J: Failed toString() invocation on an object of type ["
                             + o.getClass().getName() + ']');
-            t.printStackTrace();
+            logger.error(t.getMessage(), t);
             sbuf.append("[FAILED toString()]");
         }
     }

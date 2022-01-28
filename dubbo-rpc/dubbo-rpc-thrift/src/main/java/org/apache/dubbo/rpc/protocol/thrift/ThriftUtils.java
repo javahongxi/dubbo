@@ -15,7 +15,10 @@
  * limitations under the License.
  */
 package org.apache.dubbo.rpc.protocol.thrift;
-
+/**
+ * @since 2.7.0, use https://github.com/dubbo/dubbo-rpc-native-thrift instead
+ */
+@Deprecated
 public class ThriftUtils {
 
     /**
@@ -32,7 +35,7 @@ public class ThriftUtils {
         if (index > 0) {
 
             return new StringBuilder(32)
-                    .append(serviceName.substring(0, index + 1))
+                    .append(serviceName, 0, index + 1)
                     .append("$__")
                     .append(serviceName.substring(index + 1))
                     .append("Stub$")
@@ -59,7 +62,7 @@ public class ThriftUtils {
         if (index > 0) {
 
             return new StringBuilder(32)
-                    .append(serviceName.substring(0, index + 1))
+                    .append(serviceName, 0, index + 1)
                     .append("$__")
                     .append(serviceName.substring(index + 1))
                     .append("Stub$")
@@ -103,7 +106,7 @@ public class ThriftUtils {
 
         if (index > 0) {
             return new StringBuilder(32)
-                    .append(serviceName.substring(0, index + 1))
+                    .append(serviceName, 0, index + 1)
                     .append(methodName)
                     .append("_args")
                     .toString();
@@ -119,7 +122,7 @@ public class ThriftUtils {
 
         if (index > 0) {
             return new StringBuilder(32)
-                    .append(serviceName.substring(0, index + 1))
+                    .append(serviceName, 0, index + 1)
                     .append(methodName)
                     .append("_result")
                     .toString();

@@ -16,21 +16,24 @@
  */
 package org.apache.dubbo.config.spring.beans.factory.annotation;
 
+import org.apache.dubbo.config.bootstrap.DubboBootstrap;
 import org.apache.dubbo.config.spring.ServiceBean;
 import org.apache.dubbo.config.spring.api.HelloService;
-import org.junit.Assert;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+
+import org.apache.dubbo.config.spring.api.LazyInitHelloService;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.ComponentScan;
-import org.springframework.context.annotation.ImportResource;
-import org.springframework.context.annotation.PropertySource;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.junit4.SpringRunner;
+import org.springframework.test.context.junit.jupiter.SpringExtension;
 
 import java.util.Map;
 
@@ -39,59 +42,68 @@ import java.util.Map;
  *
  * @since 2.5.8
  */
-@RunWith(SpringRunner.class)
+@ExtendWith(SpringExtension.class)
 @ContextConfiguration(
-        classes = {ServiceAnnotationBeanPostProcessorTest.TestConfiguration.class})
+        classes = {
+                ServiceAnnotationTestConfiguration.class,
+                ServiceAnnotationBeanPostProcessorTest.class
+        })
 @TestPropertySource(properties = {
-        "package1 = org.apache.dubbo.config.spring.context.annotation",
-        "packagesToScan = ${package1}",
-        "provider.version = 1.2"
+        "provider.package = org.apache.dubbo.config.spring.context.annotation.provider",
+        "packagesToScan = ${provider.package}",
 })
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 public class ServiceAnnotationBeanPostProcessorTest {
+
+    @AfterEach
+    public void tearDown() {
+        DubboBootstrap.reset();
+    }
 
     @Autowired
     private ConfigurableListableBeanFactory beanFactory;
+
+    @Bean
+    public ServiceAnnotationBeanPostProcessor serviceAnnotationBeanPostProcessor2
+            (@Value("${packagesToScan}") String... packagesToScan) {
+        return new ServiceAnnotationBeanPostProcessor(packagesToScan);
+    }
 
     @Test
     public void test() {
 
         Map<String, HelloService> helloServicesMap = beanFactory.getBeansOfType(HelloService.class);
 
-        Assert.assertEquals(2, helloServicesMap.size());
+        Assertions.assertEquals(2, helloServicesMap.size());
 
         Map<String, ServiceBean> serviceBeansMap = beanFactory.getBeansOfType(ServiceBean.class);
-
-        Assert.assertEquals(3, serviceBeansMap.size());
+        /**
+         * There are one {@link HelloService} and two {@link LazyInitHelloService} has 1
+         * */
+        Assertions.assertEquals(3, serviceBeansMap.size());
 
         Map<String, ServiceAnnotationBeanPostProcessor> beanPostProcessorsMap =
                 beanFactory.getBeansOfType(ServiceAnnotationBeanPostProcessor.class);
 
-        Assert.assertEquals(4, beanPostProcessorsMap.size());
+        Assertions.assertEquals(2, beanPostProcessorsMap.size());
 
-        Assert.assertTrue(beanPostProcessorsMap.containsKey("doubleServiceAnnotationBeanPostProcessor"));
-        Assert.assertTrue(beanPostProcessorsMap.containsKey("emptyServiceAnnotationBeanPostProcessor"));
-        Assert.assertTrue(beanPostProcessorsMap.containsKey("serviceAnnotationBeanPostProcessor"));
-        Assert.assertTrue(beanPostProcessorsMap.containsKey("serviceAnnotationBeanPostProcessor2"));
+        Assertions.assertTrue(beanPostProcessorsMap.containsKey("serviceAnnotationBeanPostProcessor"));
+        Assertions.assertTrue(beanPostProcessorsMap.containsKey("serviceAnnotationBeanPostProcessor2"));
 
     }
 
-    @ImportResource("META-INF/spring/dubbo-annotation-provider.xml")
-    @PropertySource("META-INF/default.properties")
-    @ComponentScan("org.apache.dubbo.config.spring.context.annotation.provider")
-    public static class TestConfiguration {
+    @Test
+    public void testMethodAnnotation() {
 
-        @Bean
-        public ServiceAnnotationBeanPostProcessor serviceAnnotationBeanPostProcessor
-                (@Value("${packagesToScan}") String... packagesToScan) {
-            return new ServiceAnnotationBeanPostProcessor(packagesToScan);
-        }
+        Map<String, ServiceBean> serviceBeansMap = beanFactory.getBeansOfType(ServiceBean.class);
+        /**
+         * There are one {@link HelloService} and two {@link LazyInitHelloService} has 1
+         * */
+        Assertions.assertEquals(3, serviceBeansMap.size());
 
-        @Bean
-        public ServiceAnnotationBeanPostProcessor serviceAnnotationBeanPostProcessor2
-                (@Value("${packagesToScan}") String... packagesToScan) {
-            return new ServiceAnnotationBeanPostProcessor(packagesToScan);
-        }
+        ServiceBean demoServiceBean = serviceBeansMap.get("ServiceBean:org.apache.dubbo.config.spring.api.DemoService:2.5.7");
 
+        Assertions.assertNotNull(demoServiceBean.getMethods());
 
     }
 

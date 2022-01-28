@@ -18,13 +18,13 @@ package org.apache.dubbo.rpc.protocol.dubbo.support;
 
 import org.apache.dubbo.rpc.RpcContext;
 
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
 
 /**
  * DemoServiceImpl
  */
-
 public class DemoServiceImpl implements DemoService {
     public DemoServiceImpl() {
         super();
@@ -73,7 +73,7 @@ public class DemoServiceImpl implements DemoService {
         return types[0];
     }
 
-    public Type enumlength(Type type) {
+    public Type getType(Type type) {
         return type;
     }
 
@@ -85,7 +85,7 @@ public class DemoServiceImpl implements DemoService {
         return arg1.toString();
     }
 
-    public byte getbyte(byte arg) {
+    public int getInt(int arg) {
         return arg;
     }
 
@@ -102,5 +102,36 @@ public class DemoServiceImpl implements DemoService {
 
     public NonSerialized returnNonSerialized() {
         return new NonSerialized();
+    }
+
+    public long add(int a, long b) {
+        return a + b;
+    }
+
+    @Override
+    public int getPerson(Person person) {
+        return person.getAge();
+    }
+
+    @Override
+    public int getPerson(Person person1, Person perso2) {
+        return person1.getAge() + perso2.getAge();
+    }
+
+    @Override
+    public String getPerson(Man man) {
+        return man.getName();
+    }
+
+    @Override
+    public String getRemoteApplicationName() {
+        return RpcContext.getContext().getRemoteApplicationName();
+    }
+
+    @Override
+    public byte[] download(int size) {
+        byte[] bytes = new byte[size];
+        Arrays.fill(bytes, (byte) 0);
+        return bytes;
     }
 }

@@ -17,18 +17,26 @@
 package org.apache.dubbo.rpc.proxy;
 
 import org.apache.dubbo.common.URL;
+import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.logger.LoggerFactory;
+import org.apache.dubbo.rpc.AppResponse;
+import org.apache.dubbo.rpc.AsyncContextImpl;
+import org.apache.dubbo.rpc.AsyncRpcResult;
 import org.apache.dubbo.rpc.Invocation;
 import org.apache.dubbo.rpc.Invoker;
 import org.apache.dubbo.rpc.Result;
+import org.apache.dubbo.rpc.RpcContext;
 import org.apache.dubbo.rpc.RpcException;
-import org.apache.dubbo.rpc.RpcResult;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 /**
- * InvokerWrapper
+ * This Invoker works on provider side, delegates RPC to interface implementation.
  */
 public abstract class AbstractProxyInvoker<T> implements Invoker<T> {
+    Logger logger = LoggerFactory.getLogger(AbstractProxyInvoker.class);
 
     private final T proxy;
 
@@ -73,12 +81,39 @@ public abstract class AbstractProxyInvoker<T> implements Invoker<T> {
     @Override
     public Result invoke(Invocation invocation) throws RpcException {
         try {
-            return new RpcResult(doInvoke(proxy, invocation.getMethodName(), invocation.getParameterTypes(), invocation.getArguments()));
+            Object value = doInvoke(proxy, invocation.getMethodName(), invocation.getParameterTypes(), invocation.getArguments());
+            CompletableFuture<Object> future = wrapWithFuture(value);
+            CompletableFuture<AppResponse> appResponseFuture = future.handle((obj, t) -> {
+                AppResponse result = new AppResponse(invocation);
+                if (t != null) {
+                    if (t instanceof CompletionException) {
+                        result.setException(t.getCause());
+                    } else {
+                        result.setException(t);
+                    }
+                } else {
+                    result.setValue(obj);
+                }
+                return result;
+            });
+            return new AsyncRpcResult(appResponseFuture, invocation);
         } catch (InvocationTargetException e) {
-            return new RpcResult(e.getTargetException());
+            if (RpcContext.getContext().isAsyncStarted() && !RpcContext.getContext().stopAsync()) {
+                logger.error("Provider async started, but got an exception from the original method, cannot write the exception back to consumer because an async result may have returned the new thread.", e);
+            }
+            return AsyncRpcResult.newDefaultAsyncResult(null, e.getTargetException(), invocation);
         } catch (Throwable e) {
             throw new RpcException("Failed to invoke remote proxy method " + invocation.getMethodName() + " to " + getUrl() + ", cause: " + e.getMessage(), e);
         }
+    }
+
+	private CompletableFuture<Object> wrapWithFuture(Object value) {
+        if (RpcContext.getContext().isAsyncStarted()) {
+            return ((AsyncContextImpl)(RpcContext.getContext().getAsyncContext())).getInternalFuture();
+        } else if (value instanceof CompletableFuture) {
+            return (CompletableFuture<Object>) value;
+        }
+        return CompletableFuture.completedFuture(value);
     }
 
     protected abstract Object doInvoke(T proxy, String methodName, Class<?>[] parameterTypes, Object[] arguments) throws Throwable;

@@ -17,15 +17,17 @@
 package org.apache.dubbo.config.spring.extension;
 
 import org.apache.dubbo.common.extension.ExtensionFactory;
+import org.apache.dubbo.common.extension.SPI;
 import org.apache.dubbo.common.logger.Logger;
 import org.apache.dubbo.common.logger.LoggerFactory;
 import org.apache.dubbo.common.utils.ConcurrentHashSet;
-
-import org.springframework.beans.factory.NoSuchBeanDefinitionException;
-import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
+import org.apache.dubbo.config.DubboShutdownHook;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.ConfigurableApplicationContext;
 
 import java.util.Set;
+
+import static org.apache.dubbo.config.spring.util.DubboBeanUtils.getOptionalBean;
 
 /**
  * SpringExtensionFactory
@@ -33,48 +35,47 @@ import java.util.Set;
 public class SpringExtensionFactory implements ExtensionFactory {
     private static final Logger logger = LoggerFactory.getLogger(SpringExtensionFactory.class);
 
-    private static final Set<ApplicationContext> contexts = new ConcurrentHashSet<ApplicationContext>();
+    private static final Set<ApplicationContext> CONTEXTS = new ConcurrentHashSet<ApplicationContext>();
 
     public static void addApplicationContext(ApplicationContext context) {
-        contexts.add(context);
+        CONTEXTS.add(context);
+        if (context instanceof ConfigurableApplicationContext) {
+            ((ConfigurableApplicationContext) context).registerShutdownHook();
+            // see https://github.com/apache/dubbo/issues/7093
+            DubboShutdownHook.getDubboShutdownHook().unregister();
+        }
     }
 
     public static void removeApplicationContext(ApplicationContext context) {
-        contexts.remove(context);
+        CONTEXTS.remove(context);
+    }
+
+    public static Set<ApplicationContext> getContexts() {
+        return CONTEXTS;
     }
 
     // currently for test purpose
     public static void clearContexts() {
-        contexts.clear();
+        CONTEXTS.clear();
     }
 
     @Override
     @SuppressWarnings("unchecked")
     public <T> T getExtension(Class<T> type, String name) {
-        for (ApplicationContext context : contexts) {
-            if (context.containsBean(name)) {
-                Object bean = context.getBean(name);
-                if (type.isInstance(bean)) {
-                    return (T) bean;
-                }
+
+        //SPI should be get from SpiExtensionFactory
+        if (type.isInterface() && type.isAnnotationPresent(SPI.class)) {
+            return null;
+        }
+
+        for (ApplicationContext context : CONTEXTS) {
+            T bean = getOptionalBean(context, name, type);
+            if (bean != null) {
+                return bean;
             }
         }
 
-        logger.warn("No spring extension(bean) named:" + name + ", try to find an extension(bean) of type " + type.getName());
-
-        for (ApplicationContext context : contexts) {
-            try {
-                return context.getBean(type);
-            } catch (NoUniqueBeanDefinitionException multiBeanExe) {
-                throw multiBeanExe;
-            } catch (NoSuchBeanDefinitionException noBeanExe) {
-                if (logger.isDebugEnabled()) {
-                    logger.debug("Error when get spring extension(bean) for type:" + type.getName(), noBeanExe);
-                }
-            }
-        }
-
-        logger.warn("No spring extension(bean) named:" + name + ", type:" + type.getName() + " found, stop get bean.");
+        //logger.warn("No spring extension (bean) named:" + name + ", try to find an extension (bean) of type " + type.getName());
 
         return null;
     }

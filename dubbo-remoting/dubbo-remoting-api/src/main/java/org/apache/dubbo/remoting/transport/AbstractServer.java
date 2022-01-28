@@ -16,28 +16,32 @@
  */
 package org.apache.dubbo.remoting.transport;
 
-import org.apache.dubbo.common.Constants;
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.extension.ExtensionLoader;
 import org.apache.dubbo.common.logger.Logger;
 import org.apache.dubbo.common.logger.LoggerFactory;
-import org.apache.dubbo.common.store.DataStore;
+import org.apache.dubbo.common.threadpool.manager.ExecutorRepository;
 import org.apache.dubbo.common.utils.ExecutorUtil;
 import org.apache.dubbo.common.utils.NetUtils;
 import org.apache.dubbo.remoting.Channel;
 import org.apache.dubbo.remoting.ChannelHandler;
+import org.apache.dubbo.remoting.Constants;
 import org.apache.dubbo.remoting.RemotingException;
-import org.apache.dubbo.remoting.Server;
+import org.apache.dubbo.remoting.RemotingServer;
 
 import java.net.InetSocketAddress;
 import java.util.Collection;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
+
+import static org.apache.dubbo.common.constants.CommonConstants.ANYHOST_KEY;
+import static org.apache.dubbo.common.constants.CommonConstants.ANYHOST_VALUE;
+import static org.apache.dubbo.remoting.Constants.ACCEPTS_KEY;
+import static org.apache.dubbo.remoting.Constants.DEFAULT_ACCEPTS;
 
 /**
  * AbstractServer
  */
-public abstract class AbstractServer extends AbstractEndpoint implements Server {
+public abstract class AbstractServer extends AbstractEndpoint implements RemotingServer {
 
     protected static final String SERVER_THREAD_POOL_NAME = "DubboServerHandler";
     private static final Logger logger = LoggerFactory.getLogger(AbstractServer.class);
@@ -45,7 +49,8 @@ public abstract class AbstractServer extends AbstractEndpoint implements Server 
     private InetSocketAddress localAddress;
     private InetSocketAddress bindAddress;
     private int accepts;
-    private int idleTimeout = 600; //600 seconds
+
+    private ExecutorRepository executorRepository = ExtensionLoader.getExtensionLoader(ExecutorRepository.class).getDefaultExtension();
 
     public AbstractServer(URL url, ChannelHandler handler) throws RemotingException {
         super(url, handler);
@@ -53,12 +58,11 @@ public abstract class AbstractServer extends AbstractEndpoint implements Server 
 
         String bindIp = getUrl().getParameter(Constants.BIND_IP_KEY, getUrl().getHost());
         int bindPort = getUrl().getParameter(Constants.BIND_PORT_KEY, getUrl().getPort());
-        if (url.getParameter(Constants.ANYHOST_KEY, false) || NetUtils.isInvalidLocalHost(bindIp)) {
-            bindIp = NetUtils.ANYHOST;
+        if (url.getParameter(ANYHOST_KEY, false) || NetUtils.isInvalidLocalHost(bindIp)) {
+            bindIp = ANYHOST_VALUE;
         }
         bindAddress = new InetSocketAddress(bindIp, bindPort);
-        this.accepts = url.getParameter(Constants.ACCEPTS_KEY, Constants.DEFAULT_ACCEPTS);
-        this.idleTimeout = url.getParameter(Constants.IDLE_TIMEOUT_KEY, Constants.DEFAULT_IDLE_TIMEOUT);
+        this.accepts = url.getParameter(ACCEPTS_KEY, DEFAULT_ACCEPTS);
         try {
             doOpen();
             if (logger.isInfoEnabled()) {
@@ -68,9 +72,7 @@ public abstract class AbstractServer extends AbstractEndpoint implements Server 
             throw new RemotingException(url.toInetSocketAddress(), null, "Failed to bind " + getClass().getSimpleName()
                     + " on " + getLocalAddress() + ", cause: " + t.getMessage(), t);
         }
-        //fixme replace this with better method
-        DataStore dataStore = ExtensionLoader.getExtensionLoader(DataStore.class).getDefaultExtension();
-        executor = (ExecutorService) dataStore.get(Constants.EXECUTOR_SERVICE_COMPONENT_KEY, Integer.toString(url.getPort()));
+        executor = executorRepository.createExecutorIfAbsent(url);
     }
 
     protected abstract void doOpen() throws Throwable;
@@ -82,9 +84,10 @@ public abstract class AbstractServer extends AbstractEndpoint implements Server 
         if (url == null) {
             return;
         }
+
         try {
-            if (url.hasParameter(Constants.ACCEPTS_KEY)) {
-                int a = url.getParameter(Constants.ACCEPTS_KEY, 0);
+            if (url.hasParameter(ACCEPTS_KEY)) {
+                int a = url.getParameter(ACCEPTS_KEY, 0);
                 if (a > 0) {
                     this.accepts = a;
                 }
@@ -92,40 +95,8 @@ public abstract class AbstractServer extends AbstractEndpoint implements Server 
         } catch (Throwable t) {
             logger.error(t.getMessage(), t);
         }
-        try {
-            if (url.hasParameter(Constants.IDLE_TIMEOUT_KEY)) {
-                int t = url.getParameter(Constants.IDLE_TIMEOUT_KEY, 0);
-                if (t > 0) {
-                    this.idleTimeout = t;
-                }
-            }
-        } catch (Throwable t) {
-            logger.error(t.getMessage(), t);
-        }
-        try {
-            if (url.hasParameter(Constants.THREADS_KEY)
-                    && executor instanceof ThreadPoolExecutor && !executor.isShutdown()) {
-                ThreadPoolExecutor threadPoolExecutor = (ThreadPoolExecutor) executor;
-                int threads = url.getParameter(Constants.THREADS_KEY, 0);
-                int max = threadPoolExecutor.getMaximumPoolSize();
-                int core = threadPoolExecutor.getCorePoolSize();
-                if (threads > 0 && (threads != max || threads != core)) {
-                    if (threads < core) {
-                        threadPoolExecutor.setCorePoolSize(threads);
-                        if (core == max) {
-                            threadPoolExecutor.setMaximumPoolSize(threads);
-                        }
-                    } else {
-                        threadPoolExecutor.setMaximumPoolSize(threads);
-                        if (core == max) {
-                            threadPoolExecutor.setCorePoolSize(threads);
-                        }
-                    }
-                }
-            }
-        } catch (Throwable t) {
-            logger.error(t.getMessage(), t);
-        }
+
+        executorRepository.updateThreadpool(url, executor);
         super.setUrl(getUrl().addParameters(url.getParameters()));
     }
 
@@ -144,12 +115,15 @@ public abstract class AbstractServer extends AbstractEndpoint implements Server 
         if (logger.isInfoEnabled()) {
             logger.info("Close " + getClass().getSimpleName() + " bind " + getBindAddress() + ", export " + getLocalAddress());
         }
+
         ExecutorUtil.shutdownNow(executor, 100);
+
         try {
             super.close();
         } catch (Throwable e) {
             logger.warn(e.getMessage(), e);
         }
+
         try {
             doClose();
         } catch (Throwable e) {
@@ -176,10 +150,6 @@ public abstract class AbstractServer extends AbstractEndpoint implements Server 
         return accepts;
     }
 
-    public int getIdleTimeout() {
-        return idleTimeout;
-    }
-
     @Override
     public void connected(Channel ch) throws RemotingException {
         // If the server has entered the shutdown process, reject any new connection
@@ -189,8 +159,7 @@ public abstract class AbstractServer extends AbstractEndpoint implements Server 
             return;
         }
 
-        Collection<Channel> channels = getChannels();
-        if (accepts > 0 && channels.size() > accepts) {
+        if (accepts > 0 && getChannels().size() > accepts) {
             logger.error("Close channel " + ch + ", cause: The server " + ch.getLocalAddress() + " connections greater than max config " + accepts);
             ch.close();
             return;
@@ -202,7 +171,7 @@ public abstract class AbstractServer extends AbstractEndpoint implements Server 
     public void disconnected(Channel ch) throws RemotingException {
         Collection<Channel> channels = getChannels();
         if (channels.isEmpty()) {
-            logger.warn("All clients has discontected from " + ch.getLocalAddress() + ". You can graceful shutdown now.");
+            logger.warn("All clients has disconnected from " + ch.getLocalAddress() + ". You can graceful shutdown now.");
         }
         super.disconnected(ch);
     }

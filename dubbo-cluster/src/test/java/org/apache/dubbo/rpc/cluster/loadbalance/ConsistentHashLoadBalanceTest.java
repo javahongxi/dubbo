@@ -16,25 +16,57 @@
  */
 package org.apache.dubbo.rpc.cluster.loadbalance;
 
+import org.apache.dubbo.common.URL;
 import org.apache.dubbo.rpc.Invoker;
+import org.apache.dubbo.rpc.cluster.RouterChain;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-import org.junit.Assert;
-import org.junit.Ignore;
-import org.junit.Test;
-
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
+@SuppressWarnings("rawtypes")
 public class ConsistentHashLoadBalanceTest extends LoadBalanceBaseTest {
-    @Ignore
+
+    /**
+     * Test case for hot key
+     * https://github.com/apache/dubbo/issues/4103
+     * invoke method with same params for 10000 times:
+     * 1. count of request accept by each invoker will not
+     * be higher than (overloadRatioAllowed * average + 1)
+     *
+     */
     @Test
     public void testConsistentHashLoadBalance() {
         int runs = 10000;
         Map<Invoker, AtomicLong> counter = getInvokeCounter(runs, ConsistentHashLoadBalance.NAME);
-        for (Invoker minvoker : counter.keySet()) {
-            Long count = counter.get(minvoker).get();
-            Assert.assertTrue("abs diff should < avg", Math.abs(count - runs / (0f + invokers.size())) < runs / (0f + invokers.size()));
+        double overloadRatioAllowed = 1.5F;
+        int serverCount = counter.size();
+        double overloadThread = ((double) runs * overloadRatioAllowed)/((double) serverCount);
+        for (Invoker invoker : counter.keySet()) {
+            Long count = counter.get(invoker).get();
+            Assertions.assertTrue(count < (overloadThread + 1L),
+                    "count of request accept by each invoker will not be higher than (overloadRatioAllowed * average + 1)");
         }
+
     }
 
+    // https://github.com/apache/dubbo/issues/5429
+    @Test
+    void testNormalWhenRouterEnabled() {
+        ConsistentHashLoadBalance lb = (ConsistentHashLoadBalance) getLoadBalance(ConsistentHashLoadBalance.NAME);
+        URL url = invokers.get(0).getUrl();
+        RouterChain<LoadBalanceBaseTest> routerChain = RouterChain.buildChain(url);
+        Invoker<LoadBalanceBaseTest> result = lb.select(invokers, url, invocation);
+        int originalHashCode = lb.getCorrespondingHashCode(invokers);
+
+        for (int i = 0; i < 100; i++) {
+            routerChain.setInvokers(invokers);
+            List<Invoker<LoadBalanceBaseTest>> routeInvokers = routerChain.route(url, invocation);
+            Invoker<LoadBalanceBaseTest> finalInvoker = lb.select(routeInvokers, url, invocation);
+
+            Assertions.assertEquals(originalHashCode, lb.getCorrespondingHashCode(routeInvokers));
+        }
+    }
 }

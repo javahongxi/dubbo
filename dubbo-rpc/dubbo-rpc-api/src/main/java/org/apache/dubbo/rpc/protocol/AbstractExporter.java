@@ -33,12 +33,15 @@ public abstract class AbstractExporter<T> implements Exporter<T> {
     private volatile boolean unexported = false;
 
     public AbstractExporter(Invoker<T> invoker) {
-        if (invoker == null)
+        if (invoker == null) {
             throw new IllegalStateException("service invoker == null");
-        if (invoker.getInterface() == null)
+        }
+        if (invoker.getInterface() == null) {
             throw new IllegalStateException("service type == null");
-        if (invoker.getUrl() == null)
+        }
+        if (invoker.getUrl() == null) {
             throw new IllegalStateException("service url == null");
+        }
         this.invoker = invoker;
     }
 
@@ -48,12 +51,19 @@ public abstract class AbstractExporter<T> implements Exporter<T> {
     }
 
     @Override
-    public void unexport() {
+    final public void unexport() {
         if (unexported) {
             return;
         }
         unexported = true;
         getInvoker().destroy();
+        afterUnExport();
+    }
+
+    /**
+     * subclasses need to override this method to destroy resources.
+     */
+    public void afterUnExport() {
     }
 
     @Override

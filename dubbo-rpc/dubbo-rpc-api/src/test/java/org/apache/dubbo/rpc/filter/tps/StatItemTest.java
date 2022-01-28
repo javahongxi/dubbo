@@ -16,17 +16,17 @@
  */
 package org.apache.dubbo.rpc.filter.tps;
 
-import org.junit.After;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class StatItemTest {
 
     private StatItem statItem;
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         statItem = null;
     }
@@ -35,11 +35,22 @@ public class StatItemTest {
     public void testIsAllowable() throws Exception {
         statItem = new StatItem("test", 5, 1000L);
         long lastResetTime = statItem.getLastResetTime();
-        assertEquals(true, statItem.isAllowable());
+        assertTrue(statItem.isAllowable());
         Thread.sleep(1100L);
-        assertEquals(true, statItem.isAllowable());
+        assertTrue(statItem.isAllowable());
         assertTrue(lastResetTime != statItem.getLastResetTime());
         assertEquals(4, statItem.getToken());
     }
 
+	@Test
+	public void testAccuracy() throws Exception {
+		final int EXPECTED_RATE = 5;
+		statItem = new StatItem("test", EXPECTED_RATE, 60_000L);
+		for (int i = 1; i <= EXPECTED_RATE; i++) {
+			assertEquals(true, statItem.isAllowable());
+		}
+
+		// Must block the 6th item
+		assertEquals(false, statItem.isAllowable());
+	}
 }

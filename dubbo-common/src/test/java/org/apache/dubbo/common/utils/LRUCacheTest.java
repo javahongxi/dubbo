@@ -17,12 +17,12 @@
 
 package org.apache.dubbo.common.utils;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import static org.hamcrest.Matchers.equalTo;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class LRUCacheTest {
     @Test
@@ -31,10 +31,17 @@ public class LRUCacheTest {
         cache.put("one", 1);
         cache.put("two", 2);
         cache.put("three", 3);
+        assertFalse(cache.containsKey("one"));
+        assertFalse(cache.containsKey("two"));
+        assertFalse(cache.containsKey("three"));
+        cache.put("one", 1);
+        cache.put("two", 2);
+        cache.put("three", 3);
         assertThat(cache.get("one"), equalTo(1));
         assertThat(cache.get("two"), equalTo(2));
         assertThat(cache.get("three"), equalTo(3));
         assertThat(cache.size(), equalTo(3));
+        cache.put("four", 4);
         cache.put("four", 4);
         assertThat(cache.size(), equalTo(3));
         assertFalse(cache.containsKey("one"));
@@ -44,11 +51,14 @@ public class LRUCacheTest {
         cache.remove("four");
         assertThat(cache.size(), equalTo(2));
         cache.put("five", 5);
+        cache.put("five", 5);
         assertFalse(cache.containsKey("four"));
         assertTrue(cache.containsKey("five"));
         assertTrue(cache.containsKey("two"));
         assertTrue(cache.containsKey("three"));
         assertThat(cache.size(), equalTo(3));
+        cache.put("six", 6);
+        assertFalse(cache.containsKey("six"));
     }
 
     @Test

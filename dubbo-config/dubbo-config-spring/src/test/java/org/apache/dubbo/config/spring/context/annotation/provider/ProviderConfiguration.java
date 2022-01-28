@@ -20,32 +20,38 @@ import org.apache.dubbo.config.ApplicationConfig;
 import org.apache.dubbo.config.ProtocolConfig;
 import org.apache.dubbo.config.RegistryConfig;
 import org.apache.dubbo.config.spring.context.annotation.DubboComponentScan;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.PropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionException;
-import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.transaction.support.AbstractPlatformTransactionManager;
+import org.springframework.transaction.support.DefaultTransactionStatus;
+
+import java.util.UUID;
 
 @DubboComponentScan(basePackages = "org.apache.dubbo.config.spring.context.annotation.provider")
-@PropertySource("META-INF/default.properties")
+@PropertySource("classpath:/META-INF/default.properties")
 @EnableTransactionManagement
 public class ProviderConfiguration {
 
     /**
      * Current application configuration, to replace XML config:
      * <prev>
-     * &lt;dubbo:application name="dubbo-annotation-provider"/&gt;
+     * &lt;dubbo:application name="dubbo-demo-application"/&gt;
      * </prev>
      *
      * @return {@link ApplicationConfig} Bean
      */
-    @Bean("dubbo-annotation-provider")
+    @Bean("dubbo-demo-application")
     public ApplicationConfig applicationConfig() {
         ApplicationConfig applicationConfig = new ApplicationConfig();
-        applicationConfig.setName("dubbo-annotation-provider");
+        applicationConfig.setName("dubbo-demo-application");
         return applicationConfig;
     }
 
@@ -67,7 +73,7 @@ public class ProviderConfiguration {
     /**
      * Current protocol configuration, to replace XML config:
      * <prev>
-     * &lt;dubbo:protocol name="dubbo" port="12345"/&gt;
+     * &lt;dubbo:protocol name="injvm" port="-1"/&gt;
      * </prev>
      *
      * @return {@link ProtocolConfig} Bean
@@ -75,29 +81,37 @@ public class ProviderConfiguration {
     @Bean("dubbo")
     public ProtocolConfig protocolConfig() {
         ProtocolConfig protocolConfig = new ProtocolConfig();
-        protocolConfig.setName("dubbo");
-        protocolConfig.setPort(12345);
+        protocolConfig.setName("injvm");
+        protocolConfig.setPort(-1);
         return protocolConfig;
     }
 
     @Primary
     @Bean
     public PlatformTransactionManager platformTransactionManager() {
-        return new PlatformTransactionManager() {
+        return new AbstractPlatformTransactionManager() {
+            private Logger logger = LoggerFactory.getLogger("TestPlatformTransactionManager");
 
             @Override
-            public TransactionStatus getTransaction(TransactionDefinition definition) throws TransactionException {
-                return null;
+            protected Object doGetTransaction() throws TransactionException {
+                String transaction = "transaction_" + UUID.randomUUID().toString();
+                logger.info("Create transaction: " + transaction);
+                return transaction;
             }
 
             @Override
-            public void commit(TransactionStatus status) throws TransactionException {
-
+            protected void doBegin(Object transaction, TransactionDefinition definition) throws TransactionException {
+                logger.info("Begin transaction: " + transaction);
             }
 
             @Override
-            public void rollback(TransactionStatus status) throws TransactionException {
+            protected void doCommit(DefaultTransactionStatus status) throws TransactionException {
+                logger.info("Commit transaction: " + status.getTransaction());
+            }
 
+            @Override
+            protected void doRollback(DefaultTransactionStatus status) throws TransactionException {
+                logger.info("Rollback transaction: " + status.getTransaction());
             }
         };
     }
